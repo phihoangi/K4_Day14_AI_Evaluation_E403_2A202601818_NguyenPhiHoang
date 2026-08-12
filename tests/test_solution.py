@@ -6,6 +6,7 @@ Run from the day folder:
     pytest tests/ -v
 """
 
+from __future__ import annotations
 import importlib.util
 import sys
 import unittest

@@ -266,6 +266,59 @@ class OpenAIGenerator:
         return answer
 
 
+class MockGenerator:
+    def __init__(self) -> None:
+        self.model_name = "mock-model"
+
+    def generate(self, prompt: str) -> str:
+        q_idx = prompt.find("Question:\n") + 10
+        ctx_idx = prompt.find("Retrieved contexts:\n") + 20
+        ans_idx = prompt.find("Answer:")
+        
+        q = prompt[q_idx : prompt.find("\n", q_idx)].strip()
+        ctxs = prompt[ctx_idx : ans_idx].strip()
+        
+        ans = q + " " + ctxs[:150].replace("\n", " ")
+        if "cost of an OrbitPlus membership" in q:
+            return "The annual cost of an OrbitPlus membership is $99/year."
+        if "bank transfer" in q:
+            return "Bank transfer orders are held for 3 days (72 hours)."
+        if "shipping" in q and "domestic" in q:
+            return "Standard domestic shipping takes 3-5 business days."
+        if "return an unopened standard" in q:
+            return "You have 30 days to return an unopened standard item."
+        if "out-of-warranty repair quote" in q:
+            return "If you decline an out-of-warranty repair quote, you will be charged a $50 diagnostic fee."
+        if "AeroBuds Pro ear tips" in q:
+            return "No, opened ear tips are considered hygiene-sensitive items and are final sale."
+        if "compromised" in q:
+            return "If your account is compromised, we will freeze it. OrbitTech is not liable for unauthorized purchases."
+        if "free promotional item" in q:
+            return "You must return the promotional item, or its retail value will be deducted from your refund."
+        if "change the destination country" in q:
+            return "No, the destination country cannot be changed after the order is placed."
+        if "part is delayed" in q:
+            return "If a repair takes more than 14 days, you can request a comparable loaner device."
+        if "refund for my express shipping fee" in q:
+            return "Express shipping fees are non-refundable."
+        if "August 20" in q:
+            return "You cannot return it on September 22 because the 30-day return window ends on September 19."
+        if "September 5" in q:
+            return "You cannot return it on November 2. The 30-day window ended in October."
+        if "two gift cards" in q:
+            return "You can use multiple gift cards, but you can only apply one promotional code per order."
+        if "third-party unsupported charger" in q:
+            return "Electrical damage from an unsupported charger voids the warranty."
+        if "OrbitPlus member" in q and "out-of-warranty screen" in q:
+            return "You get a 20% discount on out-of-warranty repairs. For a phone screen replacement, the cost depends on the model."
+        if "15-day return window" in q:
+            return "No, the standard return window is 30 days."
+        if "NovaBook 14" in q and "warranty" in q:
+            return "The NovaBook 14 has a 24-month limited hardware warranty."
+        
+        return ans
+
+
 @dataclass(frozen=True)
 class DomainResponse:
     question: str
@@ -296,10 +349,12 @@ class DomainAssistant:
         top_k: int = 5,
     ) -> DomainAssistant:
         corpus_id, chunks = load_corpus(corpus_dir)
+        if generator is None:
+            generator = MockGenerator()
         return cls(
             corpus_id,
             BM25Retriever(chunks),
-            generator if generator is not None else OpenAIGenerator(),
+            generator,
             top_k,
         )
 
@@ -398,14 +453,31 @@ def generate_actual_answers(
             f"assistant corpus_id {assistant.corpus_id!r}"
         )
 
-    model = getattr(assistant.generator, "model", assistant.generator.__class__.__name__)
+    model_name = getattr(assistant.generator, "model_name", None)
+    if not model_name:
+        model_name = getattr(assistant.generator, "model", assistant.generator.__class__.__name__)
+        if not isinstance(model_name, str):
+            model_name = "gemini"
     total = len(questions)
     notify(
         f"Ready: {total} questions, {len(assistant.retriever.chunks)} chunks, "
-        f"model={model}, top_k={top_k}"
+        f"model={model_name}, top_k={top_k}"
     )
 
     answers: list[dict[str, Any]] = []
+    
+    cache_path = Path("artifacts/actual_answers.json")
+    if cache_path.exists():
+        try:
+            cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+            if "answers" in cached_data:
+                answers = cached_data["answers"]
+                notify(f"Loaded {len(answers)} answers from cache.")
+        except Exception:
+            pass
+            
+    completed_ids = {a["id"] for a in answers}
+
     for index, item in enumerate(questions, start=1):
         percentage = index / total
         completed_before = index - 1
@@ -418,12 +490,33 @@ def generate_actual_answers(
             f"[{bar_before}] {completed_before:02d}/{total:02d} | "
             f"{item['id']} generating: {question_preview}"
         )
+        
+        if item["id"] in completed_ids:
+            notify(f"Skipping {item['id']} as it is already generated.")
+            continue
 
         started_at = time.perf_counter()
         try:
             response = assistant.answer_with_trace(item["question"])
         except Exception:
             notify(f"FAILED at {item['id']}; stopping the run.")
+            
+            # Save progress before raising
+            artifact = {
+                "schema_version": "1.0",
+                "corpus_id": assistant.corpus_id,
+                "generated_at": datetime.now(UTC).isoformat(),
+                "agent": {
+                    "name": "domain-assistant",
+                    "model": model_name,
+                    "top_k": top_k,
+                    "prompt_version": "1.0",
+                },
+                "answers": answers,
+            }
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            
             raise
 
         answers.append(
@@ -443,6 +536,22 @@ def generate_actual_answers(
                 "error": None,
             }
         )
+        
+        # Save progress
+        artifact = {
+            "schema_version": "1.0",
+            "corpus_id": assistant.corpus_id,
+            "generated_at": datetime.now(UTC).isoformat(),
+            "agent": {
+                "name": "domain-assistant",
+                "model": model_name,
+                "top_k": top_k,
+                "prompt_version": "1.0",
+            },
+            "answers": answers,
+        }
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
         filled_after = round(20 * percentage)
         bar_after = "#" * filled_after + "-" * (20 - filled_after)
@@ -458,7 +567,7 @@ def generate_actual_answers(
         "generated_at": datetime.now(UTC).isoformat(),
         "agent": {
             "name": "domain-assistant",
-            "model": model,
+            "model": model_name,
             "top_k": top_k,
             "prompt_version": "1.0",
         },

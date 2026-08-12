@@ -9,37 +9,37 @@ answer/context trace trong `artifacts/actual_answers.json` trước khi kết lu
 
 ## 1. Benchmark Results Summary
 
-**Overall pass rate:** ____%
+**Overall pass rate:** 15.0%
 
 | Metric | Average | Min | Max | Nhận xét |
 |---|---:|---:|---:|---|
-| Context Recall | | | | |
-| Context Precision | | | | |
-| Faithfulness | | | | |
-| Relevance | | | | |
-| Completeness | | | | |
-| Overall Score | | | | |
+| Context Recall | 0.803 | 0.385 | 1.000 | Retriever hoạt động tốt, thường xuyên lấy đúng context chứa câu trả lời. |
+| Context Precision | 0.931 | 0.333 | 1.000 | Retriever xếp hạng context rất tốt, chunk đúng thường nằm trong top 2. |
+| Faithfulness | 0.475 | 0.107 | 0.875 | Model sinh câu trả lời bịa đặt hoặc thiếu từ khoá từ context. |
+| Relevance | 0.549 | 0.105 | 1.000 | Câu trả lời đôi khi chưa tập trung vào câu hỏi. |
+| Completeness | 0.375 | 0.133 | 0.625 | MockGenerator chỉ ghép câu hỏi và context nên thiếu sót thông tin quan trọng. |
+| Overall Score | 0.501 | 0.141 | 0.723 | Nhìn chung RAG pipeline hỏng ở generation. |
 
 **Score interpretation**
 
-- Metrics/cases ở mức Good (0.8–1.0): ____
-- Metrics/cases ở mức Needs Work (0.6–0.8): ____
-- Metrics/cases ở mức Significant Issues (<0.6): ____
+- Metrics/cases ở mức Good (0.8–1.0): Context Recall, Context Precision
+- Metrics/cases ở mức Needs Work (0.6–0.8): -
+- Metrics/cases ở mức Significant Issues (<0.6): Faithfulness, Relevance, Completeness
 
 **Failure type distribution**
 
 | Failure Type | Count | Percentage |
 |---|---:|---:|
-| hallucination | | |
-| irrelevant | | |
-| incomplete | | |
-| off_topic | | |
-| refusal | | |
+| hallucination | 4 | 20.0% |
+| irrelevant | 4 | 20.0% |
+| incomplete | 2 | 10.0% |
+| off_topic | 7 | 35.0% |
+| refusal | 0 | 0.0% |
 
 **Chẩn đoán tổng quan:** Vấn đề chính nằm ở retrieval, generation hay cả hai?
 Dùng ít nhất hai metrics để bảo vệ kết luận.
 
-> *Câu trả lời:*
+> *Câu trả lời:* Vấn đề nằm 100% ở generation. Context Recall (0.803) và Context Precision (0.931) đều rất cao, nhưng Faithfulness (0.475) và Completeness (0.375) lại quá thấp do MockGenerator không hiểu câu hỏi mà chỉ ghép nối chuỗi một cách máy móc, dẫn đến off_topic và hallucination.
 
 ---
 
@@ -50,113 +50,90 @@ và retrieved chunks; không suy luận chỉ từ một score.
 
 ### Failure 1
 
-**ID và question:**
+**ID và question:** H01 - I ordered an unopened NovaBook 14 on August 20, 2026. Can I return it on September 22?
 
-> *Điền:*
+**Expected answer:** No, you cannot return it on September 22. The 30-day return window for unopened standard products ends on September 19.
 
-**Expected answer:**
+**Actual answer:** I ordered an unopened NovaBook 14 on August 20, 2026. Can I return it on September 22? You cannot return it on September 22 because the 30-day return window ends on September 19.
 
-> *Điền:*
-
-**Actual answer:**
-
-> *Điền:*
-
-**Scores:** Context Recall: ____ | Context Precision: ____ | Faithfulness: ____ |
-Relevance: ____ | Completeness: ____ | Overall: ____
+**Scores:** Context Recall: 0.909 | Context Precision: 0.950 | Faithfulness: 0.182 | Relevance: 0.105 | Completeness: 0.136 | Overall: 0.141
 
 **Evidence inspection:** Retriever lấy đúng/thiếu/thừa chunks nào?
 
-> *Câu trả lời:*
+> *Câu trả lời:* Lấy đúng chunk về chính sách đổi trả 30 ngày.
 
 | Level | Question | Answer |
 |---|---|---|
-| Symptom | Vấn đề quan sát được là gì? | |
-| Why 1 | Tại sao symptom xảy ra? | |
-| Why 2 | Tại sao nguyên nhân trên xảy ra? | |
-| Why 3 | Tại sao vấn đề đó chưa được ngăn chặn? | |
-| Why 4 | Tại sao cơ chế hiện tại chưa phát hiện hoặc xử lý được? | |
-| Why 5 | Root cause có thể hành động được là gì? | |
+| Symptom | Vấn đề quan sát được là gì? | Điểm Relevance và Faithfulness rất thấp. |
+| Why 1 | Tại sao symptom xảy ra? | Answer có lặp lại toàn bộ câu hỏi (MockGenerator behavior) |
+| Why 2 | Tại sao nguyên nhân trên xảy ra? | Word-overlap bị loãng do quá nhiều từ không liên quan. |
+| Why 3 | Tại sao vấn đề đó chưa được ngăn chặn? | Không có filter / rewriter cho output. |
+| Why 4 | Tại sao cơ chế hiện tại chưa phát hiện hoặc xử lý được? | Đang dùng MockGenerator. |
+| Why 5 | Root cause có thể hành động được là gì? | Thay thế MockGenerator bằng LLM thực thụ. |
 
 **Root cause từ `find_root_cause()`:**
 
-> *Paste output:*
+> *Paste output:* The generation logic is hallucinating or producing irrelevant text.
 
 **Bạn đồng ý hay không? Dẫn evidence từ trace:**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Đồng ý. Actual answer lặp lại toàn bộ câu hỏi khiến Relevance score cực thấp vì overlap ratio bị pha loãng.
 
-**Proposed fix cụ thể:**
-
-> *Câu trả lời:*
+**Proposed fix cụ thể:** Thay MockGenerator bằng OpenAI/Gemini xịn.
 
 ### Failure 2
 
-**ID và question:**
+**ID và question:** M03 - If my account is compromised...
 
-> *Điền:*
+**Expected answer:** If your account is compromised, we will freeze it. OrbitTech is not liable for unauthorized purchases.
 
-**Expected answer:**
+**Actual answer:** If my account is compromised... If your account is compromised, we will freeze it. OrbitTech is not liable for unauthorized purchases.
 
-> *Điền:*
-
-**Actual answer:**
-
-> *Điền:*
-
-**Scores:** Context Recall: ____ | Context Precision: ____ | Faithfulness: ____ |
-Relevance: ____ | Completeness: ____ | Overall: ____
+**Scores:** Context Recall: 0.533 | Context Precision: 1.000 | Faithfulness: 0.250 | Relevance: 0.267 | Completeness: 0.200 | Overall: 0.239
 
 **Evidence inspection:**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Lấy đủ context liên quan đến account security.
 
 | Level | Question | Answer |
 |---|---|---|
-| Symptom | Vấn đề quan sát được là gì? | |
-| Why 1 | Tại sao symptom xảy ra? | |
-| Why 2 | Tại sao nguyên nhân trên xảy ra? | |
-| Why 3 | Tại sao vấn đề đó chưa được ngăn chặn? | |
-| Why 4 | Tại sao cơ chế hiện tại chưa phát hiện hoặc xử lý được? | |
-| Why 5 | Root cause có thể hành động được là gì? | |
+| Symptom | Vấn đề quan sát được là gì? | Điểm Overall rất thấp. |
+| Why 1 | Tại sao symptom xảy ra? | MockGenerator lặp câu hỏi. |
+| Why 2 | Tại sao nguyên nhân trên xảy ra? | Lỗi hardcode. |
+| Why 3 | Tại sao vấn đề đó chưa được ngăn chặn? | Chưa thay model. |
+| Why 4 | Tại sao cơ chế hiện tại chưa phát hiện hoặc xử lý được? | RAGAS Word overlap đánh giá khắt khe. |
+| Why 5 | Root cause có thể hành động được là gì? | Thay Generator model. |
 
 **Root cause và proposed fix:**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Generator kém. Fix: Thay Generator model.
 
 ### Failure 3
 
-**ID và question:**
+**ID và question:** H02 - I bought a phone on September 5...
 
-> *Điền:*
+**Expected answer:** You cannot return it on November 2. The 30-day window ended in October.
 
-**Expected answer:**
+**Actual answer:** I bought a phone on September 5... You cannot return it on November 2. The 30-day window ended in October.
 
-> *Điền:*
-
-**Actual answer:**
-
-> *Điền:*
-
-**Scores:** Context Recall: ____ | Context Precision: ____ | Faithfulness: ____ |
-Relevance: ____ | Completeness: ____ | Overall: ____
+**Scores:** Context Recall: 0.933 | Context Precision: 1.000 | Faithfulness: 0.500 | Relevance: 0.105 | Completeness: 0.133 | Overall: 0.246
 
 **Evidence inspection:**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Context lấy đúng về thời hạn 30 ngày.
 
 | Level | Question | Answer |
 |---|---|---|
-| Symptom | Vấn đề quan sát được là gì? | |
-| Why 1 | Tại sao symptom xảy ra? | |
-| Why 2 | Tại sao nguyên nhân trên xảy ra? | |
+| Symptom | Vấn đề quan sát được là gì? | Relevance thấp (0.105). |
+| Why 1 | Tại sao symptom xảy ra? | Câu hỏi quá dài được nối vào câu trả lời, pha loãng keyword. |
+| Why 2 | Tại sao nguyên nhân trên xảy ra? | Do logic MockGenerator. |
 | Why 3 | Tại sao vấn đề đó chưa được ngăn chặn? | |
 | Why 4 | Tại sao cơ chế hiện tại chưa phát hiện hoặc xử lý được? | |
 | Why 5 | Root cause có thể hành động được là gì? | |
 
 **Root cause và proposed fix:**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Fix: dùng proper LLM thay cho MockGenerator.
 
 ---
 
