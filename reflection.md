@@ -144,13 +144,13 @@ không chỉ nhóm theo tên metric.
 
 | Cluster | Root Cause | Failure IDs | Priority |
 |---|---|---|---|
-| 1 | | | High/Medium/Low |
-| 2 | | | |
-| 3 | | | |
+| 1 | Lỗi generation (MockGenerator trả lời lặp từ, cắt ghép sai) | E01, E02, M02, M03, H01, H02 | High |
+| 2 | Thiếu guardrails (Không có cơ chế filter các câu irrelevant/hallucinated trước khi trả về user) | A01, A03 | Medium |
+| 3 | Retrievel chưa tối ưu cho các câu phức tạp | M05, M06, H03 | Low |
 
 **Nếu chỉ được sửa một cluster, bạn chọn cluster nào và vì sao?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Chọn Cluster 1 (Lỗi Generation). Vì context đã được retrieve rất tốt (Recall/Precision cao), root cause lớn nhất hiện tại đang nằm ở khâu tổng hợp câu trả lời từ context. Nếu thay model tốt hơn, hầu hết các lỗi này sẽ biến mất.
 
 ---
 
@@ -159,22 +159,29 @@ không chỉ nhóm theo tên metric.
 Paste output của `generate_improvement_log()`:
 
 ```text
-[paste Markdown table here]
+| Failure ID | Type | Root Cause | Suggested Fix | Status |
+|------------|------|------------|---------------|--------|
+| F001 | off_topic | Multiple issues detected | Increase chunk size in RAG pipeline | Open |
+| F002 | off_topic | Answer is missing key information | Add few-shot examples | Open |
+| F003 | off_topic | Multiple issues detected | Implement hallucination checker | Open |
+| F004 | off_topic | Answer is missing key information | Refine intent classification | Open |
+| F006 | hallucination | Multiple issues detected | Add few-shot examples | Open |
+| F007 | off_topic | Context is missing or irrelevant | Implement hallucination checker | Open |
 ```
 
 **Ba improvement suggestions ưu tiên**
 
-1. ____
-2. ____
-3. ____
+1. Thay thế MockGenerator bằng LLM thực thụ (OpenAI/Gemini).
+2. Thêm Few-shot examples vào prompt.
+3. Tích hợp Hallucination checker (Self-reflection step).
 
 Với mỗi suggestion, nêu metric dự kiến thay đổi và cách đo lại.
 
 | Suggestion | Target metric | Verification method |
 |---|---|---|
-| | | |
-| | | |
-| | | |
+| Thay thế MockGenerator bằng LLM xịn | Completeness, Relevance | Chạy lại benchmark (python evaluate_answers.py) và xem average score tăng không. |
+| Thêm Few-shot examples | Faithfulness | Kiểm tra tỷ lệ lỗi Hallucination giảm bao nhiêu %. |
+| Self-reflection step | Overall pass rate | Đo lượng bad responses bị chặn lại trước khi trả về. |
 
 ---
 
@@ -182,23 +189,25 @@ Với mỗi suggestion, nêu metric dự kiến thay đổi và cách đo lại.
 
 **Câu 1: Khi nào chạy `run_regression()` trong production workflow?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Chạy `run_regression()` trong CI/CD pipeline mỗi khi có thay đổi về Prompt, Retriever config (chunk size, K), hoặc đổi Model. Nó chạy tự động trên tập Golden Dataset trước khi merge code lên nhánh chính.
 
 **Câu 2: Threshold drop 0.05 có phù hợp OrbitTech Customer Support không? Vì sao?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Phù hợp. Do các metrics heuristic (Word-overlap) thường có dao động (noise) khi thay đổi wording, nên cho phép biên độ giảm nhỏ (0.05). Nếu dùng LLM-as-a-judge, threshold này cũng dung sai cho độ ngẫu nhiên của LLM.
 
 **Câu 3: Metric/failure nào phải block deployment, metric nào chỉ alert?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* 
+> - **Block deployment:** Faithfulness giảm sâu hoặc xuất hiện nhiều Hallucination (rủi ro cao cho Customer Support).
+> - **Alert:** Completeness hoặc Context Recall giảm nhẹ (có thể là lỗi nhỏ, user có thể hỏi lại).
 
 **Câu 4: Điền evaluation stages vào flow.**
 
 ```text
-Code/prompt/retrieval change → [________] → [________] → [________] → Deploy
+Code/prompt/retrieval change → [Offline Benchmark (Golden Dataset)] → [Regression Analysis (run_regression)] → [Manual Human Review (Edge cases)] → Deploy
 ```
 
-> *Giải thích:*
+> *Giải thích:* Trước tiên chạy toàn bộ test trên tập cố định (Offline benchmark), so sánh kết quả với baseline trước đó (Regression). Nếu pass, đưa cho QA duyệt các case nhạy cảm (Human review) rồi mới Deploy.
 
 ---
 
@@ -210,13 +219,15 @@ Evaluate → Analyze → Improve → Augment benchmark → Repeat
 
 | Priority | Action | Metric dự kiến cải thiện | Expected impact |
 |---:|---|---|---|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
+| 1 | Thay thế generator (Sử dụng OpenAI thay vì MockGenerator) | Completeness, Relevance | Khắc phục 100% lỗi do word-matching máy móc. |
+| 2 | Refine system prompt để focus trả lời trực tiếp | Relevance | Cải thiện độ liên quan của các câu hỏi dài. |
+| 3 | Thêm Re-ranker vào pipeline | Context Precision | Tăng Context Precision lên mức tuyệt đối. |
 
 **Hai hoặc ba failure cases nào cần thêm vào benchmark ở vòng tiếp theo?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* 
+> 1. Case có reasoning phức tạp kết hợp nhiều ngày tháng (vd như H01).
+> 2. Các case prompt injection (để test system prompt guardrails).
 
 ---
 
@@ -224,9 +235,9 @@ Evaluate → Analyze → Improve → Augment benchmark → Repeat
 
 **Điều gì trong kết quả benchmark trái với dự đoán ban đầu của bạn?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Context Recall và Context Precision cao đến không ngờ (cả hai đều ~0.9). Tôi từng nghĩ BM25 retriever đơn giản sẽ gặp khó khăn, nhưng nó hoạt động cực kì tốt, chứng tỏ lỗi nằm chủ yếu ở khâu Generation.
 
 **Word-overlap heuristics trong lab có giới hạn gì? Nếu đưa hệ thống vào
 production, bạn sẽ thay hoặc bổ sung metric nào?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Word-overlap heuristics rất cứng nhắc, nó phạt các câu trả lời đồng nghĩa (synonyms) hoặc có lối hành văn khác dù ý nghĩa đúng. Nếu đưa vào production, tôi sẽ thay bằng LLM-as-a-judge (như `LLMJudge` trong Task 3) để chấm điểm bằng semantic similarity thay vì exact lexical match.
