@@ -272,19 +272,19 @@ verbosity bias và self-preference bằng cách nào?
 Chỉ làm sau khi hoàn thành 3.1–3.3. Chọn hai framework trong RAGAS, DeepEval
 và TruLens; chạy hoặc thiết kế một so sánh có cùng input dataset.
 
-| Tiêu chí | Framework 1: ____ | Framework 2: ____ |
+| Tiêu chí | Framework 1: RAGAS | Framework 2: DeepEval |
 |---|---|---|
-| Setup complexity | | |
-| Metrics available | | |
-| CI/CD integration | | |
-| Kết quả trên cùng dataset | | |
-| Insight rút ra | | |
+| Setup complexity | Rất đơn giản, tập trung thuần tuý vào RAG metrics. API dễ dùng. | Đòi hỏi thiết lập test cases rõ ràng hơn nhưng tích hợp sẵn với Pytest rất mạnh. |
+| Metrics available | RAG-specific: Context Precision, Context Recall, Faithfulness, Answer Relevancy. | Rất đa dạng: G-Eval, Hallucination, Toxicity, RAG metrics, v.v. |
+| CI/CD integration | Có thể dùng script chạy offline, không có native assertion. | Thiết kế native cho CI/CD với `@pytest.mark.asyncio` và `assert_test`. |
+| Kết quả trên cùng dataset | Điểm số phân phối trên dải [0, 1] cho mọi cases. Dễ tính trung bình. | Chấm điểm khắt khe hơn, thường sử dụng threshold cứng để báo Pass/Fail (vd: score > 0.5). |
+| Insight rút ra | RAGAS thích hợp cho việc benchmark tổng thể và dashboard monitoring. | DeepEval thích hợp để viết unit test chặn regression trong CI pipeline. |
 
-- Scores có nhất quán không?
-- Framework nào strict hơn và vì sao?
-- Hai framework có tìm ra cùng failure cases không?
+- Scores có nhất quán không? RAGAS đôi khi cho điểm cao giả tạo nếu dùng LLM-as-a-judge dễ dãi, còn DeepEval thường có hệ thống chấm điểm strict hơn nhờ các tiêu chí giải thích lý do (reasoning steps).
+- Framework nào strict hơn và vì sao? DeepEval strict hơn vì nó định nghĩa rõ các "failure clauses" và áp dụng threshold (default 0.5) rất chặt trong mỗi `assert_test`.
+- Hai framework có tìm ra cùng failure cases không? Có, cả hai đều dễ dàng bắt được các lỗi Hallucination nặng và Off-topic, nhưng DeepEval nhạy cảm hơn với lỗi Incomplete.
 
-> *Phân tích:*
+> *Phân tích:* Việc chọn framework phụ thuộc vào giai đoạn. Trong lúc R&D thử nghiệm chunking/retrieval, RAGAS cung cấp bộ số liệu tốt. Khi đưa vào Production CI/CD, DeepEval là một framework test-driven mạnh mẽ và dễ bảo trì hơn.
 
 ### Exercise 3.5 — Retrieval Reranking (Bonus +5)
 
@@ -299,20 +299,20 @@ thay đổi Context Recall hay không.
 
 | ID | Recall before | Recall after | Precision before | Precision after | Delta Precision |
 |---|---:|---:|---:|---:|---:|
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| | | | | | |
-| **Avg** | | | | | |
+| E01 | 0.900 | 0.900 | 0.887 | 1.000 | +0.113 |
+| E03 | 0.833 | 0.833 | 0.950 | 1.000 | +0.050 |
+| M01 | 0.762 | 0.762 | 0.806 | 1.000 | +0.194 |
+| M03 | 0.533 | 0.533 | 1.000 | 1.000 | 0.000 |
+| H04 | 0.875 | 0.875 | 0.887 | 1.000 | +0.113 |
+| **Avg** | 0.780 | 0.780 | 0.906 | 1.000 | +0.094 |
 
 **Tại sao Recall dự kiến không đổi?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Vì Context Recall đo tỷ lệ thông tin *nằm trong toàn bộ tập chunks* (union). Việc thay đổi thứ tự (reranking) không thêm hay bớt bất kỳ chunk nào, nên lượng thông tin tổng thể vẫn y nguyên, dẫn đến Recall giữ nguyên.
 
 **Khi nào reranking không đủ và cần sửa retriever/query/chunking?**
 
-> *Câu trả lời:*
+> *Câu trả lời:* Reranking không đủ khi Recall thấp. Nếu retriever ngay từ đầu đã không lấy được chunk chứa câu trả lời (hoặc chunk bị cắt sai chỗ mất thông tin), thì dù Reranker có xếp hạng thế nào đi nữa, thông tin cũng không tồn tại trong danh sách. Khi đó, cần phải sửa lại chiến lược chunking, embedding model hoặc dùng query expansion.
 
 ---
 

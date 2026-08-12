@@ -852,3 +852,14 @@ if __name__ == "__main__":
     log = analyzer.generate_improvement_log(failures, suggestions)
     print("\n=== Improvement Log ===")
     print(log)
+
+
+def rerank_by_overlap(contexts: list[str], expected: str) -> list[str]:
+    """Bonus Exercise 3.5"""
+    def score(c):
+        expected_words = set(w.strip('.,?!').lower() for w in expected.split())
+        c_words = set(w.strip('.,?!').lower() for w in c.split())
+        if not expected_words: return 0
+        return len(expected_words.intersection(c_words)) / len(expected_words)
+    return sorted(contexts, key=score, reverse=True)
+
